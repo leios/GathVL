@@ -7,6 +7,52 @@
 #include "../include/camera.h"
 #include "../include/scene.h"
 
+void update_gaussian(std::vector<vec>& fft_points,
+                     std::vector<vec>& gaussian_points, int step,
+                     int xrange, int yrange, int res){
+
+    // FFT'ing gaussian curve for momentum-space image
+    std::vector<fftw_complex> gaussian(res), fft_out(res);
+
+    double deviation = 0.5 / ((double)step*0.5);
+    for (size_t i = 0; i < gaussian.size(); ++i){
+        double xpos = -5 + 10.0*(i / (double)gaussian.size());
+        gaussian[i][0] = std::exp(-(xpos*xpos)/deviation);
+        gaussian[i][1] = 0;
+    }
+
+    // Creating FFTW plans and such
+    fftw_plan plan = fftw_plan_dft_1d(res, gaussian.data(), fft_out.data(),
+                                      FFTW_FORWARD, FFTW_ESTIMATE);
+
+    fftw_execute(plan);
+
+    // Finding renormalization factor
+    double renorm_factor = 0;
+    double max = 0;
+    for (int i = 0; i < res; ++i){
+        double magnitude = (fft_out[i][0]*fft_out[i][0]
+                            +fft_out[i][1]*fft_out[i][1]);
+
+        if (magnitude > max){
+             max = magnitude;
+        }
+/*
+        renorm_factor += (fft_out[i][0]*fft_out[i][0]
+                         +fft_out[i][1]*fft_out[i][1]);
+*/
+    }
+
+    for (int i = 0; i < res; ++i) {
+        int j =(i + res /2) % res;
+        double fft_yval = (fft_out[j][0]*fft_out[j][0]
+                           +fft_out[j][1]*fft_out[j][1]) / max;
+        fft_points[i] = {i * xrange/res, fft_yval * yrange};
+        gaussian_points[i] = {i * xrange/res, gaussian[i][0]*yrange};
+    }
+
+}
+
 void first_scene(camera& cam, scene& world) {
     int xrange = 1200;
     int yrange = 300;
@@ -95,7 +141,7 @@ void second_scene(camera& cam, scene& world) {
     // Creating axis for plotting
     int xrange = 500;
     int yrange = 500;
-    int res = 200;
+    int res = 500;
 
     auto y_axis1 = std::make_shared<line>(vec{50, cam.size.y-50},
                                           vec{50, cam.size.y-50});
@@ -122,7 +168,7 @@ void second_scene(camera& cam, scene& world) {
 
     for (size_t i = 0; i < gaussian.size(); ++i){
         double xpos = -5 + 10.0*(i / (double)gaussian.size());
-        gaussian[i][0] = std::exp(-(xpos*xpos)/.005);
+        gaussian[i][0] = std::exp(-(xpos*xpos)/.0005);
         gaussian[i][1] = 0;
     }
 
@@ -134,10 +180,16 @@ void second_scene(camera& cam, scene& world) {
 
     // Finding renormalization factor
     double renorm_factor = 0;
+    double max = 0;
     for (int i = 0; i < res; ++i){
-        renorm_factor += (fft_out[i][0]*fft_out[i][0]
-                         +fft_out[i][1]*fft_out[i][1]);
+        double magnitude = (fft_out[i][0]*fft_out[i][0]
+                            +fft_out[i][1]*fft_out[i][1]);
+
+        if (magnitude > max){
+             max = magnitude;
+        }
     }
+
     // Adding two gaussian curves
     std::vector<vec> gaussian_points, fft_out_points;
     vec origin1 = {50, cam.size.y-50};
@@ -149,8 +201,9 @@ void second_scene(camera& cam, scene& world) {
         std::make_shared<curve>(std::vector<vec>(), origin2);
 
     for (int i = 0; i < res; ++i) {
-        double fft_yval = (fft_out[i][0]*fft_out[i][0]
-                           +fft_out[i][1]*fft_out[i][1]) / renorm_factor;
+        int j =(i + res /2) % res;
+        double fft_yval = (fft_out[j][0]*fft_out[j][0]
+                           +fft_out[j][1]*fft_out[j][1]) / max;
         fft_out_points.emplace_back(i * xrange/res, fft_yval * yrange);
         gaussian_points.emplace_back(i * xrange/res, gaussian[i][0]*yrange);
     }
@@ -168,7 +221,11 @@ void second_scene(camera& cam, scene& world) {
     world.add_shape(gaussian_curve, 0);
     world.add_shape(fft_out_curve, 0);
 
-    for (int i = 0; i < 151; ++i) {
+    for (int i = 0; i < 251; ++i) {
+        if (i >= 51){
+            update_gaussian(fft_out_curve->points, gaussian_curve->points,
+                            i - 51, xrange, yrange, res);
+        }
         world.update(i);
         cam.encode_frame(world);
     }
